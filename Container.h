@@ -1,93 +1,309 @@
-#include <bits/stdc++.h>
+#ifndef CONTAINER_H
+#define CONTAINER_H
 
-using namespace std;
+#include <type_traits>
+#include <tuple>
+#include <vector>
+#include <array>
+#include <algorithm>
+
+namespace cnt
+{
+
+namespace impl
+{
+
+// Stack allocation must not exceed this limit
+
+constexpr std::size_t maxSize = 1000 * sizeof(char);
 
 
-constexpr std::size_t MAX = 1000 * sizeof(char);
 
-
-template <bool B, class T>
-using _if_ = typename enable_if<B, T>::type;
-
+// Helper for variadic template
 
 template <typename... Args>
-struct Holder
+struct Holder { using Type = Holder<Args...>; };
+
+
+
+// Picks the Nth type
+
+template <std::size_t N, typename... Args>
+struct Pick
 {
-    using type = Holder<Args...>;
+    static_assert(N < sizeof...(Args), "Position to pick exceeds maximum number of elements");
+
+    using Type = decltype(std::get<N>(std::declval<std::tuple<Args...>>()));
 };
 
+template <std::size_t N, typename... Args>
+using Pick_t = typename Pick<N, Args...>::type;      // Helper for clearer sintax
+
+//---------------------------------------------------------------------------
+
+// Helper for creating constexpr functions for variadic arguments
+
+#define OPERATION(NAME, BIN_OP) \
+\
+constexpr inline auto NAME () { return 0; }  \
+\
+template <typename T, typename U>   \
+constexpr inline auto NAME (T&& t, U&& u) { return BIN_OP(std::forward<T>(t), std::forward<U>(u)); }    \
+\
+template <typename T, typename... Args> \
+constexpr inline auto NAME (T&& t, Args&&... args) { return BIN_OP(std::forward<T>(t), NAME(std::forward<Args>(args)...)); }
 
 
-template <std::size_t, class...>
-struct Pick;
+#define MULT(x, y) (x) * (y)    // Because there is no way to pass a constexpr function as argument, this is necessary
 
-template <std::size_t N, class T, class... Args>
-struct Pick<N, T, Args...> : public Pick<N-1, Args...> {};
-
-template <class T, class... Args>
-struct Pick<0, T, Args...>
-{
-	using type = T;
-};
-
-template <std::size_t N, class... Args>
-using Pick_t = typename Pick<N, Args...>::type;
+OPERATION(mult, MULT);      // Declares a function called 'mult' with the operation MULT
+                            // This could be done too: 'OPERATION(mult, [](auto&& x, auto&& y){ ... })',
+                            // but it is no more a constexpr function
 
 
+//-----------------------------------------------------------------------------------
 
-template <int...>
-struct Mult;
+// Test truthness of variadic set of bool arguments
 
-template <int x, int... Ints>
-struct Mult<x, Ints...>
-{
-	static constexpr int val = x > 0 ? x * Mult<Ints...>::val : 0;
-};
-
-template <int x>
-struct Mult<x>
-{
-	static constexpr int val = x > 0 ? x : 0;
-};
-
-template <>
-struct Mult<>
-{
-	static constexpr int val = 0;
-};
-
-
-template <int... Ints>
-struct Test
-{
-    static constexpr bool val = sizeof...(Ints) > 0 ? bool(Mult<Ints...>::val) : false;
-};
-
-
-template <typename...>
+template <bool...>
 struct And;
 
-template<>
-struct And<> : public std::true_type {};
+template <bool B1, bool... Bs>
+struct And<B1, Bs...> : public And<Bs...> {};
 
-template <typename T>
-struct And<T> : public T {};
+template <bool... Bs>
+struct And<false, Bs...> : public std::false_type {};
 
-template <typename T, typename U>
-struct And<T, U> : public std::conditional<T::value, U, T>::type {};
-
-template <typename T, typename U, typename V, typename... Args>
-struct And<T, U, V, Args...> : public std::conditional<T::value, And<U, V, Args...>, T>::type {};
+template <>
+struct And<true> : public std::true_type {};
 
 
 
 
+// Choses Nth variable at compile time
 
-template <typename T, std::size_t... Ints>
-struct Container : public std::conditional<Test<Ints...>::val,        /*((sizeof...(Ints) == 0) || (Mult<Ints...>::val > MAX)),*/
+template <std::size_t N, typename... Args>
+inline constexpr decltype(auto) choose (Args&&... args)
+{
+    static_assert(N < sizeof...(Args), "Position required exceeds the number of arguments");
+
+    return std::get<N>(std::tuple<Args...>(std::forward<Args>(args)...));
+}
+
+
+
+
+// Helper for testing if the selected base will be std::array or a std::vector
+
+template <int N>
+constexpr bool test = (N > 0) ? true : false;
+//constexpr bool test = (N > 0) ? (N < maxSize) : false;
+
+
+}   // namespace impl
+
+
+//==============================================================================================
+
+
+
+// Main class
+//
+// cnt::Vector inherits from a std::vector if it is not supplied with compile time size
+// or if the given compile time size is greater than the value defined at cnt::impl::maxSize.
+//
+// Otherwise it inherits from std::array
+
+template <typename T, int N = 0>
+struct Vector : public std::conditional_t<impl::test<N>, std::array<T, N>, std::vector<T>>
+{
+    using Base = std::conditional_t<impl::test<N>, std::array<T, N>, std::vector<T>>;
+
+    using Base::Base;   // Inherits all constructors of std::vector, given that std::array has no user defined constructors
+
+
+    static constexpr bool isArray = std::is_same<std::array<T, N>, Base>::value;
+
+    static constexpr bool isVector = std::is_same<std::vector<T>, Base>::value;
+
+
+    Vector () : Base() {}
+
+
+    // Constructor needed for initializing the class as: cnt::Vector<T, N> v = {...}, if inheriting from std::array
+
+    template <typename U = Base, typename = std::enable_if_t<std::is_same<std::array<T, N>, U>::value>>
+    Vector (std::initializer_list<T> in) { std::copy(in.begin(), in.end(), this->begin()); }
+};
+
+
+//=========================================================================================================
+
+
+template <typename T, int Rows = 0, int Cols = 0>
+class Matrix : public Vector<T, Rows * Cols>
+{
+public:
+
+    using Base = Vector<T, Rows * Cols>;
+
+    using Base::Base;
+
+
+    using ValueType = T;
+
+
+
+
+    template <typename U = Base, typename = std::enable_if_t<U::isArray>>
+    Matrix () : Base(), rows_(Rows), cols_(Cols) {}
+
+    template <typename U = Base, typename = std::enable_if_t<U::isVector>>
+    Matrix (int rows, int cols) : Base(rows * cols), rows_(rows), cols_(cols) {}
+
+    //template <typename U, typename V = Base, typename = std::enable_if_t<V::isArray>>
+    //Matrix (std::initializer_list<T> in) : Base(in), rows_(Rows), cols_(Cols) {}
+
+
+    inline int rows () const { return rows_; }
+
+    inline int cols () const { return cols_; }
+
+
+
+    inline constexpr decltype(auto) operator () (int i, int j)
+    {
+        return this->operator[](i * cols_ + j);
+    }
+
+    inline constexpr decltype(auto) operator () (int i, int j) const
+    {
+        return this->operator[](i * cols_ + j);
+    }
+
+
+
+    template <typename U>
+    inline auto create (U, int r, int c)
+    {
+        return impl::choose<std::size_t(Base::isVector)>(Matrix<U, Rows, Cols>(), Matrix<U>(rows_, cols_));
+    }
+
+
+
+private:
+
+    int rows_;
+    int cols_;
+
+};
+
+
+
+
+//=========================================================================================================
+
+
+
+template <typename T, int... Is>
+class Container : public Vector<T, impl::mult(Is...)>
+{
+public:
+
+    using Base = Vector<T, impl::mult(Is...)>;
+
+    using Base::Base;
+
+
+
+
+    template <typename U = Base, typename = std::enable_if_t<U::isArray>>
+	Container () : Base(), dimensions(sizeof...(Is)), dimSize({Is...}), weights()
+	{
+	    initWeights();
+	}
+
+    template <typename U = Base, typename... Args>
+    Container (Args... args) : Base(impl::mult(args...)), dimensions(sizeof...(args)),
+                                    dimSize({args...}), weights(dimensions)
+    {
+
+        //std::enable_if_t<impl::And<U::isVector, std::is_integral<Args>::value...>::value>();
+
+        static_assert(impl::And<U::isVector, std::is_integral<Args>::value...>::value, "Container already initialized");
+
+        initWeights();
+    }
+
+
+	inline void initWeights ()
+    {
+    	weights.back() = 1;
+
+        for(int i = dimensions - 2; i >= 0; --i)
+            weights[i] = weights[i + 1] * dimSize[i + 1];
+    }
+
+
+
+    template <typename... Indexes>
+    inline constexpr decltype(auto) operator () (Indexes... inds)
+    {
+        static_assert(impl::And<std::is_integral<Indexes>::value...>::value, "Indexes must be integers");
+
+        const std::array<int, sizeof...(Indexes)> v = { inds... };
+
+        return this->operator[](std::inner_product(v.begin(), v.end(), weights.begin(), 0));
+    }
+
+    template <typename... Indexes>
+    inline constexpr decltype(auto) operator () (Indexes... inds) const
+    {
+        static_assert(impl::And<std::is_integral<Indexes>::value...>::value, "Indexes must be integers");
+
+        const std::array<int, sizeof...(Indexes)> v = { inds... };
+
+        return this->operator[](std::inner_product(v.begin(), v.end(), weights.begin(), 0));
+    }
+
+
+    inline constexpr decltype(auto) operator () (int i, int j)
+    {
+        return this->operator[](i * dimSize[1] + j);
+    }
+
+    inline constexpr decltype(auto) operator () (int i, int j) const
+    {
+        return this->operator[](i * dimSize[1] + j);
+    }
+
+
+    inline constexpr auto size (int p) const { return dimSize[p]; }
+
+    inline constexpr auto size () const { return Base::size(); }
+
+
+
+private:
+
+    int dimensions;
+
+    Vector<int, sizeof...(Is)> dimSize;
+
+    Vector<int, sizeof...(Is)> weights;
+
+};
+
+
+//=========================================================================================================
+
+
+
+/*template <typename T, std::size_t... Ints>
+struct Container : public std::conditional<Test<Ints...>::val,
                                            array<T, Mult<Ints...>::val>, vector<T>>::type
 {
-    using Base = typename std::conditional<Test<Ints...>::val,         /*((sizeof...(Ints) == 0) || (Mult<Ints...>::val > MAX)),*/
+    using Base = typename std::conditional<Test<Ints...>::val,
                                            array<T, Mult<Ints...>::val>, vector<T>>::type;
 
     using reference = typename Base::reference;
@@ -222,25 +438,10 @@ struct Container : public std::conditional<Test<Ints...>::val,        /*((sizeof
 };
 
 template <typename T, std::size_t... Ints>
-std::size_t Container<T, Ints...>::dimensions = sizeof...(Ints) ? sizeof...(Ints) : 1;
+std::size_t Container<T, Ints...>::dimensions = sizeof...(Ints) ? sizeof...(Ints) : 1;*/
 
 
+} // namespace cnt
 
 
-
-
-int main ()
-{
-    //Container<int, 3, 5, 4> c;
-    Container<int> c = Container<int>(3, 5, 4);
-
-    for(int i = 0, l=0; i < c.size(0); ++i)
-        for(int j = 0; j < c.size(1); ++j)
-            for(int k = 0; k < c.size(2); ++k, ++l)
-                c(i, j, k) = l;
-
-    for(auto x : c)
-        cout << x << endl;
-
-    return 0;
-}
+#endif  // CONTAINER_H
