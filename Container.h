@@ -122,9 +122,11 @@ struct Vector : public std::conditional_t<impl::test<N>, std::array<T, N>, std::
     using Base::Base;   // Inherits all constructors of std::vector, given that std::array has no user defined constructors
 
 
-    static constexpr bool isArray = std::is_same<std::array<T, N>, Base>::value;
+    template <class U = Base>
+    static constexpr bool isArray = std::is_same<std::array<T, N>, U>::value;
 
-    static constexpr bool isVector = std::is_same<std::vector<T>, Base>::value;
+    template <class U = Base>
+    static constexpr bool isVector = std::is_same<std::vector<T>, U>::value;
 
 
     Vector () : Base() {}
@@ -132,8 +134,13 @@ struct Vector : public std::conditional_t<impl::test<N>, std::array<T, N>, std::
 
     // Constructor needed for initializing the class as: cnt::Vector<T, N> v = {...}, if inheriting from std::array
 
-    template <typename U = Base, typename = std::enable_if_t<std::is_same<std::array<T, N>, U>::value>>
+    template <typename U = Base, typename = std::enable_if_t<isArray<U>>>
     Vector (std::initializer_list<T> in) { std::copy(in.begin(), in.end(), this->begin()); }
+
+
+    template <typename U = Base, typename = std::enable_if_t<isArray<U>>>
+    Vector (std::size_t M) {}
+
 };
 
 
