@@ -1,48 +1,38 @@
-#include <iostream>
+#include <bits/stdc++.h>
+#define DB(...) std::cout << __VA_ARGS__ << "\n" << std::flush
+
+//#include "Container.h"
+//#include "Matrix.h"
 #include "Container.h"
 
 using namespace std;
 
 
-template <class> struct Print;
+
+template <class> struct Prt;
 
 
-
-template <int... Is>
-void Foo (const cnt::Container<int, Is...>& c)
+template <typename T, size_t... Is>
+ostream& operator << (ostream& out, const cnt::Container<T, Is...>& v)
 {
-    for(int i = 0; i < c.size(0); ++i)
-        for(int j = 0; j < c.size(1); ++j)
-            for(int k = 0; k < c.size(2); ++k)
-                cout << c(i, j, k) << endl;
-}
+    for(const auto& x : v)
+        out << x << " ";
 
-
-template <size_t N = 0>
-auto Goo (int n = 0)
-{
-    cnt::Vector<int, N> v(n);
-
-    return v;
+    return out << "\n";
 }
 
 
 
 int main ()
 {
-    /*cnt::Container<int, 7, 5, 3> v;     // Creates a std::array
-    cnt::Container<int> u(2, 4, 6);     // Creates a std::vector
+    cnt::Container<int> v(10, 20, 30);
 
-    std::generate(v.begin(), v.end(), []{ static int x = 0; return x++; });
-    std::generate(u.begin(), u.end(), []{ static int x = 0; return x++; });
+    v(5, 18, 23) = 15;
 
-    Foo(v);
-    Foo(u);*/
+    int ar[] = {5, 18, 23};
 
+    DB(v(5, 18, 23));
 
-    cout << Goo().size() << endl;
-
-    //Print<typename decay_t<decltype(Goo(5))>::Base>();
 
 
     return 0;

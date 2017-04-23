@@ -1,244 +1,96 @@
-#ifndef CONTAINER_H
-#define CONTAINER_H
+#ifndef CNT_CONTAINER_H
+#define CNT_CONTAINER_H
 
-#include <type_traits>
+
+#include "Vector.h"
+
 #include <tuple>
-#include <vector>
-#include <array>
 #include <algorithm>
+#include <cmath>
+#include <numeric>
+
+
+#include <iostream>
+#define DB(...) std::cout << __VA_ARGS__ << "\n" << std::flush
+
 
 namespace cnt
 {
 
-namespace impl
+template <typename T, std::size_t... Is>
+struct Container : public Vector<T, help::multiply(Is...)>
 {
 
-// Stack allocation must not exceed this limit
+    using Base = Vector<T, help::multiply(Is...)>;
 
-constexpr std::size_t maxSize = 1000 * sizeof(char);
+    //using Base::Base;
 
+    using value_type = typename Base::value_type;
 
+    using reference = typename Base::reference;
 
-// Helper for variadic template
+    using const_reference = typename Base::const_reference;
 
-template <typename... Args>
-struct Holder { using Type = Holder<Args...>; };
+    using Base::Size;
 
+    //friend class Slice<Container<T, Is...>>;
 
 
-// Picks the Nth type
-
-template <std::size_t N, typename... Args>
-struct Pick
-{
-    static_assert(N < sizeof...(Args), "Position to pick exceeds maximum number of elements");
-
-    using Type = decltype(std::get<N>(std::declval<std::tuple<Args...>>()));
-};
-
-template <std::size_t N, typename... Args>
-using Pick_t = typename Pick<N, Args...>::type;      // Helper for clearer sintax
-
-//---------------------------------------------------------------------------
-
-// Helper for creating constexpr functions for variadic arguments
-
-#define OPERATION(NAME, BIN_OP) \
-\
-constexpr inline auto NAME () { return 0; }  \
-\
-template <typename T, typename U>   \
-constexpr inline auto NAME (T&& t, U&& u) { return BIN_OP(std::forward<T>(t), std::forward<U>(u)); }    \
-\
-template <typename T, typename... Args> \
-constexpr inline auto NAME (T&& t, Args&&... args) { return BIN_OP(std::forward<T>(t), NAME(std::forward<Args>(args)...)); }
-
-
-#define MULT(x, y) (x) * (y)    // Because there is no way to pass a constexpr function as argument, this is necessary
-
-OPERATION(mult, MULT);      // Declares a function called 'mult' with the operation MULT
-                            // This could be done too: 'OPERATION(mult, [](auto&& x, auto&& y){ ... })',
-                            // but it is no more a constexpr function
-
-
-//-----------------------------------------------------------------------------------
-
-// Test truthness of variadic set of bool arguments
-
-template <bool...>
-struct And;
-
-template <bool B1, bool... Bs>
-struct And<B1, Bs...> : public And<Bs...> {};
-
-template <bool... Bs>
-struct And<false, Bs...> : public std::false_type {};
-
-template <>
-struct And<true> : public std::true_type {};
-
-
-
-
-// Choses Nth variable at compile time
-
-template <std::size_t N, typename... Args>
-inline constexpr decltype(auto) choose (Args&&... args)
-{
-    static_assert(N < sizeof...(Args), "Position required exceeds the number of arguments");
-
-    return std::get<N>(std::tuple<Args...>(std::forward<Args>(args)...));
-}
-
-
-
-
-// Helper for testing if the selected base will be std::array or a std::vector
-
-template <int N>
-constexpr bool test = (N > 0) ? true : false;
-//constexpr bool test = (N > 0) ? (N < maxSize) : false;
-
-
-}   // namespace impl
-
-
-//==============================================================================================
-
-
-
-// Main class
-//
-// cnt::Vector inherits from a std::vector if it is not supplied with compile time size
-// or if the given compile time size is greater than the value defined at cnt::impl::maxSize.
-//
-// Otherwise it inherits from std::array
-
-template <typename T, int N = 0>
-struct Vector : public std::conditional_t<impl::test<N>, std::array<T, N>, std::vector<T>>
-{
-    using Base = std::conditional_t<impl::test<N>, std::array<T, N>, std::vector<T>>;
-
-    using Base::Base;   // Inherits all constructors of std::vector, given that std::array has no user defined constructors
-
-
-    template <class U = Base>
-    static constexpr bool isArray = std::is_same<std::array<T, N>, U>::value;
-
-    template <class U = Base>
-    static constexpr bool isVector = std::is_same<std::vector<T>, U>::value;
-
-
-    Vector () : Base() {}
-
-
-    // Constructor needed for initializing the class as: cnt::Vector<T, N> v = {...}, if inheriting from std::array
-
-    template <typename U = Base, typename = std::enable_if_t<isArray<U>>>
-    Vector (std::initializer_list<T> in) { std::copy(in.begin(), in.end(), this->begin()); }
-
-
-    template <typename U = Base, typename = std::enable_if_t<isArray<U>>>
-    Vector (std::size_t M) {}
-
-};
-
-
-//=========================================================================================================
-
-
-template <typename T, int Rows = 0, int Cols = 0>
-class Matrix : public Vector<T, Rows * Cols>
-{
-public:
-
-    using Base = Vector<T, Rows * Cols>;
-
-    using Base::Base;
-
-
-    using ValueType = T;
-
-
-
-
-    template <typename U = Base, typename = std::enable_if_t<U::isArray>>
-    Matrix () : Base(), rows_(Rows), cols_(Cols) {}
-
-    template <typename U = Base, typename = std::enable_if_t<U::isVector>>
-    Matrix (int rows, int cols) : Base(rows * cols), rows_(rows), cols_(cols) {}
-
-    //template <typename U, typename V = Base, typename = std::enable_if_t<V::isArray>>
-    //Matrix (std::initializer_list<T> in) : Base(in), rows_(Rows), cols_(Cols) {}
-
-
-    inline int rows () const { return rows_; }
-
-    inline int cols () const { return cols_; }
-
-
-
-    inline constexpr decltype(auto) operator () (int i, int j)
+    template <typename... Args, std::size_t M = Size, 
+              std::enable_if_t<(help::isArray< M > || M >= help::maxSize), int > = 0>
+    Container (Args&&... args) : Base{ std::forward<Args>(args)... }, dimensions(sizeof...(Is)), dimSize( int(Is)... )
     {
-        return this->operator[](i * cols_ + j);
-    }
+        initWeights();
 
-    inline constexpr decltype(auto) operator () (int i, int j) const
-    {
-        return this->operator[](i * cols_ + j);
+        Base::resize(Size);
     }
 
 
 
-    template <typename U>
-    inline auto create (U, int r, int c)
+    template <std::size_t M = Size, help::EnableIfZero< M > = 0>
+    Container () {}
+
+    template <typename... Args, std::size_t M = Size, help::EnableIfZero< M > = 0,
+              help::EnableIfIntegral< std::decay_t< Args >... > = 0 >
+    Container (Args&&... args) : dimensions(sizeof...(args)), dimSize{ std::forward<Args>(args)... },
+                                 weights(sizeof...(args))
     {
-        return impl::choose<std::size_t(Base::isVector)>(Matrix<U, Rows, Cols>(), Matrix<U>(rows_, cols_));
+        initWeights();
+
+        Base::resize(weights.front() * dimSize.front());
     }
 
 
-
-private:
-
-    int rows_;
-    int cols_;
-
-};
-
-
-
-
-//=========================================================================================================
-
-
-
-template <typename T, int... Is>
-class Container : public Vector<T, impl::mult(Is...)>
-{
-public:
-
-    using Base = Vector<T, impl::mult(Is...)>;
-
-    using Base::Base;
-
-
-
-
-    template <typename U = Base, typename = std::enable_if_t<U::isArray>>
-	Container () : Base(), dimensions(sizeof...(Is)), dimSize({Is...}), weights()
-	{
-	    initWeights();
-	}
-
-    template <typename U = Base, typename... Args>
-    Container (Args... args) : Base(impl::mult(args...)), dimensions(sizeof...(args)),
-                                    dimSize({args...}), weights(dimensions)
+    template <class... Args, std::size_t M = Size, help::EnableIfZero< M > = 0,
+              help::EnableIfIterable< std::remove_reference_t< Args >... > = 0>
+    Container (Args&&... args) : dimensions(0)
     {
+        auto dummie = { (dimensions += std::forward<Args>(args).size(),
+                         dimSize.insert( dimSize.end(), std::begin(std::forward<Args>(args)), 
+                                                        std::end(std::forward<Args>(args)) ))... };
 
-        //std::enable_if_t<impl::And<U::isVector, std::is_integral<Args>::value...>::value>();
+        weights.resize(dimensions);
 
-        static_assert(impl::And<U::isVector, std::is_integral<Args>::value...>::value, "Container already initialized");
+        initWeights();
 
+        Base::resize(weights.front() * dimSize.front());
+    }
+
+
+    template <typename U, typename V, std::size_t M = Size, help::EnableIfZero< M > = 0,
+              help::EnableIfIntIter< std::decay_t< U >, std::decay_t< V > > = 0>
+    Container (U&& begin, V&& end) : dimensions( std::distance( std::forward<U>(begin), std::forward<V>(end) ) ), 
+                                     dimSize( std::forward<U>(begin), std::forward<V>(end) ),
+                                     weights( std::distance( std::forward<U>(begin), std::forward<V>(end) ) )
+    {
+        initWeights();
+
+        Base::resize(weights.front() * dimSize.front());
+    }
+
+    template<std::size_t M = Size, help::EnableIfZero< M > = 0>
+    Container (std::initializer_list<T> il) : Base( il ), dimensions(1), dimSize(1, il.size()), weights(1)
+    {
         initWeights();
     }
 
@@ -253,41 +105,162 @@ public:
 
 
 
-    template <typename... Indexes>
-    inline constexpr decltype(auto) operator () (Indexes... inds)
+    // template <typename... Inds, typename = help::EnableIfIntegral<Inds...>>
+    // inline constexpr decltype(auto) slice (Inds... inds)
+    // {
+    //     return Slice<Container<T, Is...>>(*this, inds...);
+    // }
+
+    // template <typename... Inds, typename = help::EnableIfIntegral<Inds...>>
+    // inline constexpr decltype(auto) slice (Inds... inds) const
+    // {
+    //     return Slice<Container<T, Is...>>(*this, inds...);
+    // }
+
+
+
+    // template <std::size_t N, std::size_t... Js>
+    // inline constexpr decltype(auto) slice (const std::array<int, N>& v, std::index_sequence<Js...>)
+    // {
+    //     return slice(v[Js]...);
+    // }
+
+    // template <std::size_t N, std::size_t... Js>
+    // inline constexpr decltype(auto) slice (const std::array<int, N>& v, std::index_sequence<Js...>) const
+    // {
+    //     return slice(v[Js]...);
+    // }
+
+
+    // template <std::size_t N>
+    // inline constexpr decltype(auto) slice (const std::array<int, N>& v)
+    // {
+    //     return slice(v, std::make_index_sequence<N>());
+    // }
+
+    // template <std::size_t N>
+    // inline constexpr decltype(auto) slice (const std::array<int, N>& v) const
+    // {
+    //     return slice(v, std::make_index_sequence<N>());
+    // }
+
+
+
+    template <typename... Args, help::EnableIfIntegral< std::decay_t< Args >... > = 0 >
+    inline const_reference operator () (Args&&... args) const
     {
-        static_assert(impl::And<std::is_integral<Indexes>::value...>::value, "Indexes must be integers");
+        int pos = 0;
 
-        const std::array<int, sizeof...(Indexes)> v = { inds... };
+        auto it = weights.begin();
 
-        return this->operator[](std::inner_product(v.begin(), v.end(), weights.begin(), 0));
+        const auto& dummie = { ( pos += *it++ * std::forward<Args>(args) )... };
+
+        return this->operator[]( pos );
     }
 
-    template <typename... Indexes>
-    inline constexpr decltype(auto) operator () (Indexes... inds) const
+    template <typename... Args, help::EnableIfIntegral< std::decay_t< Args >... > = 0 >
+    inline reference operator () (Args&&... args)
     {
-        static_assert(impl::And<std::is_integral<Indexes>::value...>::value, "Indexes must be integers");
+        // return const_cast< std::decay_t< decltype( 
+        //        static_cast< const Container& >( *this )( std::forward<Args>(args)... ) ) > & >(
+        //        static_cast< const Container& >( *this )( std::forward<Args>(args)... ) );
 
-        const std::array<int, sizeof...(Indexes)> v = { inds... };
-
-        return this->operator[](std::inner_product(v.begin(), v.end(), weights.begin(), 0));
+        return const_cast< reference >( static_cast< const Container& >( *this )( std::forward<Args>(args)...) );
     }
 
 
-    inline constexpr decltype(auto) operator () (int i, int j)
+
+    template <class... Args, help::EnableIfIterable< std::remove_reference_t< Args >... > = 0>
+    inline const_reference operator () (Args&&... args) const
     {
-        return this->operator[](i * dimSize[1] + j);
+        int pos = 0;
+
+        auto it = weights.begin();
+
+        const auto& dummie = { ( pos += std::inner_product( std::forward<Args>(args).begin(), 
+                                                            std::forward<Args>(args).end(),
+                                                            it, 0), 
+                                                            it += std::forward<Args>(args).size() )... };
+        return this->operator[]( pos );
     }
 
-    inline constexpr decltype(auto) operator () (int i, int j) const
+    template <typename... Args, help::EnableIfIterable< std::decay_t< Args >... > = 0 >
+    inline reference operator () (Args&&... args)
     {
-        return this->operator[](i * dimSize[1] + j);
+        // return const_cast< std::decay_t< decltype( 
+        //        static_cast< const Container& >( *this )( std::forward<Args>(args)... ) ) > & >(
+        //        static_cast< const Container& >( *this )( std::forward<Args>(args)... ) );
+
+        return const_cast< reference >( static_cast< const Container& >( *this )( std::forward<Args>(args)...) );
     }
 
 
-    inline constexpr auto size (int p) const { return dimSize[p]; }
 
-    inline constexpr auto size () const { return Base::size(); }
+    template <typename U, typename V, help::EnableIfIntIter< std::decay_t< U >, std::decay_t< V > > = 0>
+    inline const_reference operator () (U&& begin, V&& end) const
+    {
+        return this->operator[]( std::inner_product(std::forward<U>(begin), std::forward<V>(end),
+                                                    weights.begin(), 0) );
+    }
+
+    template <typename U, typename V, help::EnableIfIntIter< std::decay_t< U >, std::decay_t< V > > = 0>
+    inline reference operator () (U&& begin, V&& end)
+    {
+        // return const_cast< std::decay_t< decltype( 
+        //        static_cast< const Container& >( *this )( std::forward<U>(begin), std::forward<V>(end) ) ) > & >(
+        //        static_cast< const Container& >( *this )( std::forward<U>(begin), std::forward<V>(end) ) );
+
+        return const_cast< reference >( static_cast< const Container& >( *this )( std::forward<U>(begin), 
+                                                                                  std::forward<V>(end) ) );
+    }
+
+
+
+    template <typename U, help::EnableIfIntegral< std::decay_t< U > > = 0 >
+    inline const_reference operator () (std::initializer_list<U> il) const
+    {
+        return this->operator()( il.begin(), il.end() );
+    }
+
+    template <typename U, help::EnableIfIntegral< std::decay_t< U > > = 0 >
+    inline reference operator () (std::initializer_list<U> il)
+    {
+        // return const_cast< std::decay_t< decltype(
+        //        static_cast< const Container& >( *this )( il ) ) > & >(
+        //        static_cast< const Container& >( *this )( il ) );
+
+        return const_cast< reference >( static_cast< const Container& >( *this )( il ) );
+    }
+
+
+
+    template <typename... Args, help::EnableIfIntegral< std::decay_t< Args >... > = 0 >
+    constexpr inline const_reference operator () (const std::tuple<Args...>& tup) const
+    {
+        return this->operator()( tup, std::make_index_sequence< sizeof...(Args) >() );
+    }
+
+    template <typename... Args, help::EnableIfIntegral< std::decay_t< Args >... > = 0 >
+    constexpr inline reference operator () (const std::tuple<Args...>& tup)
+    {
+        // return const_cast< std::decay_t< decltype(
+        //        static_cast< const Container& >( *this )( tup ) ) > & >(
+        //        static_cast< const Container& >( *this )( tup ) );
+
+        return const_cast< reference >( static_cast< const Container& >( *this )( tup ) );
+    }
+
+    template <typename... Args, std::size_t... Js>
+    constexpr inline const_reference operator () (const std::tuple<Args...>& tup, std::index_sequence<Js...>) const
+    {
+        return this->operator()( std::get< Js >( tup )... );
+    }
+
+
+
+    inline std::size_t size (int p) const { return dimSize[p]; }
+
+    inline std::size_t size () const      { return Base::size(); }
 
 
 
@@ -295,160 +268,148 @@ private:
 
     int dimensions;
 
-    Vector<int, sizeof...(Is)> dimSize;
+    Vector<int, bool(Size) * sizeof...(Is)> dimSize;
 
-    Vector<int, sizeof...(Is)> weights;
+    Vector<int, bool(Size) * sizeof...(Is)> weights;
 
 };
 
 
-//=========================================================================================================
+// //=========================================================================================================
 
 
 
-/*template <typename T, std::size_t... Ints>
-struct Container : public std::conditional<Test<Ints...>::val,
-                                           array<T, Mult<Ints...>::val>, vector<T>>::type
-{
-    using Base = typename std::conditional<Test<Ints...>::val,
-                                           array<T, Mult<Ints...>::val>, vector<T>>::type;
+// template <class Cnt>
+// struct Slice
+// {
+//     template <typename... Inds, typename = help::EnableIfIntegral<Inds...>>
+//     Slice (Cnt& c, Inds... inds) : c(c), dims(sizeof...(Inds))
+//     {
+//         first = std::inner_product(c.weights.begin(), c.weights.begin() + dims, help::makeArray(inds...).begin(), 0);
 
-    using reference = typename Base::reference;
-
-
-    static constexpr bool vectorBase = std::is_same<Base, vector<T>>::value;
-    static constexpr bool arrayBase  = !vectorBase;
-
-
-    static constexpr std::size_t staticSize =  (arrayBase || (Mult<Ints...>::val > MAX)) ? Mult<Ints...>::val : 1;
-
-    static std::size_t dimensions;
+//         last = first + c.weights[dims-1];
+//     }
 
 
 
-    template <class Type, typename U>
-	using _if_vector = typename enable_if<is_same<Type, vector<T>>::value, U>::type;
+//     inline decltype(auto) operator [] (int p)
+//     {
+//         return c[first + p];
+//     }
 
-	template <class Type, typename U>
-	using _if_array = typename enable_if<is_same<Type, array<T, staticSize>>::value, U>::type;
-
-
-
-    template <typename U, typename... Args>
-    struct _if_integral_;
-
-    template <typename R, typename U, typename... Args>
-    struct _if_integral_<R, U, Args...>
-    {
-        using type = _if_<And<std::is_same<std::decay_t<U>, std::decay_t<Args>>...,
-                         std::is_integral<Args>...>::value, R>;
-    };
-
-    template <typename R, typename... Args>
-    using _if_integral = typename _if_integral_<R, Args...>::type;
-
-
-    using indexType = typename std::conditional<vectorBase, std::vector<std::size_t>, std::array<std::size_t, sizeof...(Ints)>>::type;
-
-    indexType sizeDim;
-    indexType weights;
-
-
-	Container ()
-	{
-	    Init<Base>();
-
-        sizeDim = { Ints... };
-
-		InitWeights();
-	}
-
-    template <typename U, typename... Args>
-    Container (U u, Args... args)
-    {
-        static_assert(sizeof...(Ints) == 0, "Already initialized");
-
-        _if_vector<Base, void>();
-        _if_integral<void, U, Args...>();
-
-        dimensions = sizeof...(args) + 1;
-
-        sizeDim = std::vector<std::size_t>{ std::size_t(u), std::size_t(args)... };
-
-        weights = vector<std::size_t>(dimensions);
-
-        std::size_t vectorSize = 1;
-
-        for(auto x : sizeDim)
-            vectorSize *= x;
-
-        this->resize(vectorSize);
-
-        InitWeights();
-    }
+//     inline decltype(auto) operator [] (int p) const
+//     {
+//         return c[first + p];
+//     }
 
 
 
-    template <class U>
-	_if_vector<U, void> Init ()
-	{
-		if(staticSize > 1)
-		    this->resize(staticSize);
-	}
+//     template <std::size_t N>
+//     inline constexpr decltype(auto) operator () (const std::array<int, N>& v)
+//     {
+//         return c[(std::inner_product(v.begin(), v.end(), c.weights.begin() + dims, first))];
+//     }
 
-	template <class U>
-	_if_array<U, void> Init ()
-	{
-		this->fill(T());
-	}
-
-
-	inline void InitWeights ()
-    {
-    	weights.back() = 1;
-
-        for(int i = dimensions - 2; i >= 0; --i)
-            weights[i] = weights[i + 1] * sizeDim[i + 1];
-    }
+//     template <std::size_t N>
+//     inline constexpr decltype(auto) operator () (const std::array<int, N>& v) const
+//     {
+//         return c[(std::inner_product(v.begin(), v.end(), c.weights.begin() + dims, first))];
+//     }
 
 
 
 
-    template <typename... Args>
-    _if_integral<reference, Args...> operator () (Args... args)
-    {
-        //static_assert(dimensions == (sizeof...(Args)), "Wrong number of dimensions");
+//     template <typename... Indexes, typename = help::EnableIfIntegral<Indexes...>>
+//     inline constexpr decltype(auto) operator () (Indexes... inds)
+//     {
+//         return this->operator()(std::array<int, sizeof...(Indexes)>{ inds... });
+//     }
 
-        const std::array<Pick_t<0, Args...>, sizeof...(Args)> v = { args... };
-
-        return this->operator[](std::inner_product(v.begin(), v.end(), weights.begin(), 0));
-    }
-
-
-    inline typename Base::reference operator () (std::size_t i, std::size_t j)
-    {
-        //static_assert(dimensions == 2, "Wrong number of dimensions");
-
-        return this->operator[](i * sizeDim[1] + j);
-    }
+//     template <typename... Indexes, typename = help::EnableIfIntegral<Indexes...>>
+//     inline constexpr decltype(auto) operator () (Indexes... inds) const
+//     {
+//         return this->operator()(std::array<int, sizeof...(Indexes)>{ inds... });
+//     }
 
 
-    inline constexpr size (int p)
-    {
-        return sizeDim[p];
-    }
 
-    inline constexpr size ()
-    {
-        return Base::size();
-    }
-};
+//     template <std::size_t N, std::size_t M, std::size_t... Js, std::size_t... Ks>
+//     inline constexpr decltype(auto) operator () (const std::array<int, N>& v, const std::array<int, M>& u,
+//                                                  std::index_sequence<Js...>, std::index_sequence<Ks...>)
+//     {
+//         return this->operator()(std::array<int, N + M>{ v[Js]..., u[Ks]... });
+//     }
 
-template <typename T, std::size_t... Ints>
-std::size_t Container<T, Ints...>::dimensions = sizeof...(Ints) ? sizeof...(Ints) : 1;*/
-
-
-} // namespace cnt
+//     template <std::size_t N, std::size_t M, std::size_t... Js, std::size_t... Ks>
+//     inline constexpr decltype(auto) operator () (const std::array<int, N>& v, const std::array<int, M>& u,
+//                                                  std::index_sequence<Js...>, std::index_sequence<Ks...>) const
+//     {
+//         return this->operator()(std::array<int, N + M>{ v[Js]..., u[Ks]... });
+//     }
 
 
-#endif  // CONTAINER_H
+
+//     template <std::size_t N, std::size_t M>
+//     inline constexpr decltype(auto) operator () (const std::array<int, N>& v, const std::array<int, M>& u)
+//     {
+//         return this->operator()(v, u, std::make_index_sequence<N>(), std::make_index_sequence<M>());
+//     }
+
+//     template <std::size_t N, std::size_t M>
+//     inline constexpr decltype(auto) operator () (const std::array<int, N>& v, const std::array<int, M>& u) const
+//     {
+//         return this->operator()(v, u, std::make_index_sequence<N>(), std::make_index_sequence<M>());
+//     }
+
+
+
+//     template <std::size_t N, typename... Indexes, typename = help::EnableIfIntegral<Indexes...>>
+//     inline constexpr decltype(auto) operator () (const std::array<int, N>& v, Indexes... inds)
+//     {
+//         return this->operator()(v, std::array<int, sizeof...(Indexes)>{ inds...}, 
+//                                    std::make_index_sequence<N>(), std::make_index_sequence<sizeof...(Indexes)>());
+//     }
+
+//     template <std::size_t N, typename... Indexes, typename = help::EnableIfIntegral<Indexes...>>
+//     inline constexpr decltype(auto) operator () (const std::array<int, N>& v, Indexes... inds) const
+//     {
+//         return this->operator()(v, std::array<int, sizeof...(Indexes)>{ inds...}, 
+//                                    std::make_index_sequence<N>(), std::make_index_sequence<sizeof...(Indexes)>());
+//     }
+
+
+
+//     inline constexpr auto size (int p) const { return c.size(dims + p); }
+
+//     inline constexpr auto size () const { return last - first; }
+
+
+
+//     inline decltype(auto) begin ()       { return c.begin() + first; }
+
+//     inline decltype(auto) c_begin () const { return c.c_begin() + first; }
+
+//     inline decltype(auto) end ()       { return c.begin() + last; }
+
+//     inline decltype(auto) c_end () const { return c.c_begin() + last; }
+
+
+
+
+
+//     Cnt& c;
+
+//     std::size_t dims;
+//     std::size_t first;
+//     std::size_t last;
+
+// };
+
+
+
+// } // namespace cnt
+
+
+}
+
+#endif  // CNT_CONTAINER_H
