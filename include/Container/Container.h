@@ -1,7 +1,7 @@
 /** \file Container.h
   *
-  * A class to easily access multidimensional data, having compatible
-  * interface with STL algorithms.
+  * An interface to easily access multidimensional data, having total 
+  * compatibility with STL algorithms and containers.
 */
 
 #ifndef CNT_CONTAINER_H
@@ -200,81 +200,103 @@ public:
 // ------------------------------- Access - operator() --------------------------------------------- //
 
 
-    /** Access operator for variadic arguments of integral types. The elements define
-      * the position of each dimension in the order they are passed, just as you
-      * expect.
+
+
+
+    /** These functions get either a integral type or a iterable of integrals
+      * and multiply each element with the iterator 'iter', given by a position
+      * in the variable 'weights'. The iterator is incremented, and the value
+      * of the multiplication is returned.
       *
-      * \param[int] args Variadic integral types defining the position to access in
-      					 each dimension.
+      * \note Here, I used a universal reference for the iterator type 'Iter',
+      *					so I can use a dummie in the place of the iterator. The
+      *					function then can be called with a single argument, to 
+      *					allow SFINAE. See the 'operator()' function bellow.
+      *
+      * \param[in] u Either a integral type or a iterable of integrals
+      * \param[in] iter A reference to a iterator. 
+      * \return res Result after multiplication(s).
     */
-    //@{
-    template <typename... Args, help::EnableIfIntegral< std::decay_t< Args >... > = 0 >
-    const_reference operator () (const Args&... args) const
+    //@
+    template <typename U, typename Iter = int*, help::EnableIfIntegral<std::decay_t<U>> = 0>
+    static std::size_t increment (U u, Iter&& iter = 0)
     {
-        int pos = 0;
-
-        auto it = weights.begin();
-
-        const auto& dummie = { (pos += *it++ * args)... };
-
-        return this->operator[](pos);
+    	return *iter++ * u;
     }
 
-    template <typename... Args, help::EnableIfIntegral< std::decay_t< Args >... > = 0 >
-    reference operator () (const Args&... args)
+
+    template <typename U, typename Iter = int*, help::EnableIfIterable<std::decay_t<U>> = 0>
+    static std::size_t increment (const U& u, Iter&& iter = 0)
     {
-        return const_cast<reference>(static_cast<const Container&>(*this)(args...));
+    	std::size_t res = 0;
+
+    	for(auto x : u)
+    		res += *iter++ * x;
+
+    	return res;
     }
     //@}
 
 
-    /** Access operator for variadic iterable arguments of integral types. The elements
-      * in the iterable define the dimension to access in the given order.
+
+    /** This access operator lets you pass variadic arguments being either integral
+      * types or iterables of integral types. The order of the arguments determines
+      * the position in each dimension. For example: 'Container<int> c(4, 1, 3);
+      * c(vector<long>{1, 0}, 2);' will give you the positions 1, 0 and 2 in the
+      * first, second and third dimension, respectivelly.
       *
-      * \param[int] args Variadic iterable arguments defining the position to access in
-      					 each dimension.
+      * \note The 'Dummie' template stuff is a trick to only allow the call if
+      * the arguments are either integral or iterable of integrals types.
+      *
+      * \param[in] args Either integral types or a iterables of integrals
     */
     //@{
-    template <class... Args, help::EnableIfIterable< std::remove_reference_t< Args >... > = 0>
+    template <typename... Args,
+    		  typename Dummie = std::index_sequence<decltype(increment(std::declval<Args>())){}...>>
     const_reference operator () (const Args&... args) const
     {
-        int pos = 0;
+        std::size_t pos = 0;
 
         auto iter = weights.begin();
 
-        const auto& dummie = { (pos += std::inner_product(args.begin(), args.end(), iter, 0), 
-                                                          iter += args.size())... };
+        const auto& dummie = { (pos += increment(args, iter), int{})... };
 
         return this->operator[](pos);
     }
 
-    template <typename... Args, help::EnableIfIterable< std::decay_t< Args >... > = 0 >
+    template <typename... Args,
+    		  typename Dummie = std::index_sequence<decltype(increment(std::declval<Args>())){}...>>
     reference operator () (const Args&... args)
     {
-        return const_cast<reference>(static_cast<const Container&>(*this)(args...));
+    	std::size_t pos = 0;
+
+        auto iter = weights.begin();
+
+        const auto& dummie = { (pos += increment(args, iter), int{})... };
+
+        return this->operator[](pos);
+        //return const_cast<reference>(static_cast<const Container&>(*this)(args...));
     }
     //@}
 
 
-
-    /** Access operator for an iterator defined by the starting position 'begin' and ending
-      * position 'end'. The dimensions to access are defined in order by the integral elements
+    /** Access operator for an iterator defined by the starting position 'begin'.
+      * The dimensions to access are defined by the order of the integral elements
       * of the iterator.
       *
       * \param[in] begin Initial position of the iterator/pointer of integral types
-      * \param[in] end Final position of the iterator/pointer of integral types
     */
     //@{
-    template <typename U, typename V, help::EnableIfIntIter< std::decay_t< U >, std::decay_t< V > > = 0>
-    const_reference operator () (const U& begin, const V& end) const
+    template <typename U, typename V, help::EnableIfIntIter< std::decay_t< U > > = 0>
+    const_reference operator () (const U& begin) const
     {
-        return this->operator[](std::inner_product(begin, end, weights.begin(), 0));
+        return this->operator[](std::inner_product(weights.begin(), weights.end(), begin, 0));
     }
 
-    template <typename U, typename V, help::EnableIfIntIter< std::decay_t< U >, std::decay_t< V > > = 0>
-    reference operator () (const U& begin, const V& end)
+    template <typename U, typename V, help::EnableIfIntIter< std::decay_t< U > > = 0>
+    reference operator () (const U& begin)
     {
-        return const_cast<reference>(static_cast<const Container&>(*this)(begin, end));
+        return const_cast<reference>(static_cast<const Container&>(*this)(begin));
     }
     //@}
 
@@ -288,7 +310,7 @@ public:
     template <typename U, help::EnableIfIntegral< std::decay_t< U > > = 0 >
     const_reference operator () (std::initializer_list<U> il) const
     {
-        return this->operator()(il.begin(), il.end());
+        return this->operator[](std::inner_product(weights.begin(), weights.end(), il.begin(), 0));
     }
 
     template <typename U, help::EnableIfIntegral< std::decay_t< U > > = 0 >
@@ -323,6 +345,8 @@ public:
         return this->operator()(std::get<Js>(tup)...);
     }
     //@}
+
+
 
 
 

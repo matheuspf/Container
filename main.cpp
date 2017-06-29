@@ -34,15 +34,20 @@ int main ()
     // for(auto x : u)
     // 	DB(x);
 
-    cnt::Container<double> ks(vector<int>{2, 3}, list<double>{4, 5});
+    cnt::Container<double> ks(vector<int>{2, 3}, list<long>{4, 5});
 
-    ks(1, 2, 3, 4) = -25.3;
+    ks(1, 2, vector<int>{3}, 3) = -25.3;
+
+    ks({1, 2, 3, 4}) = 50; 
 
     DB(ks.size());
     DB(ks.size(0));
     DB(ks.size(1));
     DB(ks.size(2));
     DB(ks.size(3));
+
+    DB(ks[ks.size()-2]);
+    DB(ks[ks.size()-1]);
     
 
 

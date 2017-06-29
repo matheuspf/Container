@@ -150,20 +150,20 @@ template <typename... Args>
 using EnableIfIntegral = std::enable_if_t< And_v< std::is_integral_v< Args >... >, int >; 
 
 
+
 /// Enable if all 'Args' are iterable types (has an iterator given by std::begin)
 template <typename... Args>
 using EnableIfIterable = std::enable_if_t < And_v< bool(sizeof...(Args)), !std::is_same_v< std::decay_t< decltype( 
 													*std::begin( std::declval< Args >() )) >, void >... > &&
-										    And_v<std::is_integral_v<std::decay_t<decltype(*std::begin( std::declval< Args >() ))>
-										    > ... >, int >; 
+										    And_v<std::is_integral_v<std::decay_t<decltype(
+										    		*std::begin( std::declval< Args >() ))> > ... >, int >; 
 
 
 /// Enable if all 'Args' are iterators or pointers to integral types
 template <typename... Args>
-using EnableIfIntIter = std::enable_if_t< ( And_v< (std::is_pointer< Args >::value && 
+using EnableIfIntIter = std::enable_if_t< And_v< (std::is_pointer< Args >::value && 
 												    std::is_integral_v< decltype( *std::declval< Args >() ) >)... > ||
-										    And_v<  std::is_integral_v< typename std::iterator_traits< Args >::value_type 
-										    > ... >), int >;
+										  And_v<  std::is_integral_v< typename std::iterator_traits< Args >::value_type > ... >, int >;
 //@}
 
 }   // namespace help
