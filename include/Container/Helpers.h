@@ -9,6 +9,7 @@
 #include <type_traits>
 #include <vector>
 #include <array>
+#include <initializer_list>
 
 
 
@@ -49,20 +50,38 @@ constexpr std::size_t maxSize = 100000 * sizeof(char);
   * \return The total size of multiplying Is or 0, if sizeof...(Is) == 0
 */
 //@{
-template <std::size_t... Is, std::enable_if_t<sizeof...(Is), int> = 0>
-constexpr inline std::size_t multiply ()
-{
-	std::size_t res = 1;
+// template <std::size_t I, std::size_t... Is>
+// constexpr inline std::size_t multiply ()
+// {
+// 	std::size_t res = I;
 
-	const auto& dummie = { (res *= Is, int{})... };
+// 	const auto& dummy = { (res *= Is)... };
 
-	return res;
-}
+// 	return res;
+// }
 
-constexpr inline std::size_t multiply ()
-{
-	return 0;
-}
+// constexpr inline std::size_t multiply ()
+// {
+// 	return 0;
+// }
+
+
+template <std::size_t...>
+struct multiply;
+
+template <std::size_t I, std::size_t... Is>
+struct multiply<I, Is...> : std::integral_constant<std::size_t, sizeof...(Is) ? 
+												   I * multiply<Is...>::value : I> {};
+
+template <>
+struct multiply<> : std::integral_constant<std::size_t, 0> {};
+
+
+template<std::size_t... Is>
+constexpr std::size_t multiply_v = multiply<Is...>::value;
+
+
+
 //@}
 
 
@@ -95,22 +114,6 @@ constexpr bool And_v = And< Bs... >::value;
 
 
 
-/** Helper for creating std::array from variadic arguments
-  *
-  * \note All arguments must be of the same type
-  *
-  * \param[in] t First argument, to guarantee at least one element
-  * \param[in] args Variadic arguments to create the array.
-*/
-template <typename T, typename... Args, typename = std::enable_if_t< And_v< std::is_same_v< T, Args >... > > >
-inline constexpr auto makeArray (T t, Args... args)
-{
-    return std::array< T, sizeof...(Args) + 1 >{ t, args... };
-}
-
-
-
-
 /** If the compile time size is greater than 0 and less than the defined maxSize, 
   * the Vector is a std::array. Otherwise it is a std::vector
 */
@@ -126,6 +129,42 @@ constexpr bool isVector = !isArray< N >;
 /// Selects either a 'std::array<T, N>' or a 'std::vector<T>' depending on the size 'N'
 template <typename T, std::size_t N>
 using SelectType = std::conditional_t<help::isArray<N>, std::array<T, N>, std::vector<T>>;
+
+
+
+
+/** Tells us if 'T' is an iterable type (has definition for 'std::begin') of integrals */
+//@{
+template <class>
+constexpr bool isIterableImpl (...) { return false; }
+
+template <class T>
+constexpr bool isIterableImpl (decltype(std::is_integral_v<decltype(*std::begin(std::declval<T>()))>, int{})*)
+{
+	return true;
+}
+
+template <class T>
+constexpr bool isIterable () { return isIterableImpl<T>(nullptr); }
+//@}
+
+
+
+/** Tells us if 'T' is an iterator of integrals */
+//@{
+template <class>
+constexpr bool isIteratorImpl (...) { return false; }
+
+template <class T>
+constexpr bool isIteratorImpl (decltype(std::is_integral_v<typename std::iterator_traits<T>::value_type>, int{})*)
+{
+	return true;
+}
+
+template <class T>
+constexpr bool isIterator () { return isIteratorImpl<T>(nullptr); }
+//@}
+
 
 
 
@@ -147,24 +186,35 @@ using EnableIfZero = std::enable_if_t< (N == 0), int >;
 
 /// Enable if all 'Args' are integrals
 template <typename... Args>
-using EnableIfIntegral = std::enable_if_t< And_v< std::is_integral_v< Args >... >, int >; 
+using EnableIfIntegral = std::enable_if_t<And_v<std::is_integral_v<Args>...>, int>; 
 
 
-
-/// Enable if all 'Args' are iterable types (has an iterator given by std::begin)
+/// Enable if all 'Args' are iterables of integrals
 template <typename... Args>
-using EnableIfIterable = std::enable_if_t < And_v< bool(sizeof...(Args)), !std::is_same_v< std::decay_t< decltype( 
-													*std::begin( std::declval< Args >() )) >, void >... > &&
-										    And_v<std::is_integral_v<std::decay_t<decltype(
-										    		*std::begin( std::declval< Args >() ))> > ... >, int >; 
+using EnableIfIterable = std::enable_if_t<And_v<isIterable<Args>()...>, int>;
 
-
-/// Enable if all 'Args' are iterators or pointers to integral types
+/// Enable if all 'Args' are iterators to integrals
 template <typename... Args>
-using EnableIfIntIter = std::enable_if_t< And_v< (std::is_pointer< Args >::value && 
-												    std::is_integral_v< decltype( *std::declval< Args >() ) >)... > ||
-										  And_v<  std::is_integral_v< typename std::iterator_traits< Args >::value_type > ... >, int >;
+using EnableIfIterator = std::enable_if_t<And_v<isIterator<Args>()...>, int>;
+
+/// Enable if all 'Args' are either integrals or iterable types of integrals
+template <typename... Args>
+using EnableIfIntegralOrIterable = std::enable_if_t<And_v<(std::is_integral_v<Args> || isIterable<Args>())...>, int>;
+
+
+
+
+/** These are dummy classes that help to create functions to treat the type of parameters 
+  * of the accessors: integrals, iterables or iterators.
+*/
+//@{
+struct IntegralType {};
+
+struct IterableType {};
+
+struct IteratorType {};
 //@}
+
 
 }   // namespace help
 

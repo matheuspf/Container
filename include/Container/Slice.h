@@ -15,6 +15,10 @@
 namespace cnt
 {
 
+namespace help
+{
+
+
     /** This class is just a proxy to access chosen dimensions of a container.
       * The only storage is are the positions to access and a reference to
       * the container that created this slice. There are a bunch of examples
@@ -44,38 +48,52 @@ namespace cnt
 // --------------------------------- Constructors ---------------------------------------------- //
 
 
-    /**
+    /** These are the same constructor types defined for the 'Container' class, but now
+      * with a reference to the 'Container' class that created this slice. Also, the
+      * slice defines the range that it can access.
     */
     //@{
+
+    /// For integrals
     template <typename... Args, help::EnableIfIntegral< std::decay_t< Args >... > = 0 >
-    Slice (Cnt& c, const Args&... args) : c(c), dims(sizeof...(Args) ? sizeof...(Args) : c.dimensions), first(0)
+    Slice (Cnt& c, const Args&... args) : c(c), dims(sizeof...(Args)), first(0)
     {
         auto iter = c.weights.begin();
 
-        const auto& dummie = { (first += *iter++ * args)..., 0 };
+        const auto& dummy = { (first += *iter++ * args, int{})..., int{} };
 
         last = first + (sizeof...(Args) ? c.weights[dims-1] : c.size());
     }
 
 
-    template <typename... Args, help::EnableIfIterable< std::remove_reference_t< Args >... > = 0 >
-    Slice (Cnt& c, const Args&... args) : c(c), dims(sizeof...(Args)), first(0)
+    /// For iterables
+    template <typename... Args, std::enable_if_t<sizeof...(Args), int> = 0,
+              help::EnableIfIterable< std::remove_reference_t< Args >... > = 0 >
+    Slice (Cnt& c, const Args&... args) : c(c), dims(0), first(0)
     {
         auto iter = c.weights.begin();
 
-        const auto& dummie = { (first += std::inner_product(args.begin(), args.end(), iter, 0), 
+        const auto& dummy = { (first += std::inner_product(args.begin(), args.end(), iter, 0), 
                                                             iter += args.size())... };
+        dims = iter - c.weights.begin();
+
         last = first + c.weights[dims-1];
     }
 
 
-    template <typename U, typename V, help::EnableIfIntIter< std::decay_t< U >, std::decay_t< V > > = 0>
-    Slice (Cnt& c, const U& begin, const U& end) : c(c), dims(std::distance(begin, end)), first(0)
+    /// For a range defined by iterators
+    template <typename U, typename V, help::EnableIfIterator< std::decay_t< U >, std::decay_t< V > > = 0>
+    Slice (Cnt& c, const U& begin, const V& end) : c(c), dims(std::distance(begin, end)), first(0)
     {
         first = std::inner_product(begin, end, c.weights.begin(), 0);
 
         last = first + c.weights[dims-1];
     }
+
+
+    /// For list initialization
+    template <typename U, help::EnableIfIntegral<std::decay_t<U>> = 0> 
+    Slice (Cnt& c, std::initializer_list<U> il) : Slice(c, il.begin(), il.end()) {}
     //@}
 
 
@@ -84,139 +102,68 @@ namespace cnt
 // ------------------------------- Access - operator() --------------------------------------------- //
 
 
-    template <typename... Args, help::EnableIfIntegral< std::decay_t< Args >... > = 0 >
-    const_reference operator () (const Args&... args) const
+    /** Again, these are almost identical to 'Container' accessors. Of course, they
+      * can only access the defined range, so the operations are a bit different,
+      * but the interface is the same.
+    */
+    //@{
+
+    /// For integral or iterable types
+    template <typename... Args>
+    const_reference operator () (IntegralType, const Args&... args) const
     {
-        int pos = first;
+        std::size_t pos = first;
 
-        auto it = c.weights.begin() + dims;
+        auto iter = c.weights.begin() + dims;
 
-        const auto& dummie = { (pos += *it++ * args)... };
+        const auto& dummy = { (pos += Base::increment(args, iter), int{})... };
 
-        return c[ pos ];
-    }
-
-    template <typename... Args, help::EnableIfIntegral< std::decay_t< Args >... > = 0 >
-    reference operator () (const Args&... args)
-    {
-        return const_cast<reference>(static_cast<const Slice&>(*this)(args...));
-    }
-
-
-
-    template <class... Args, help::EnableIfIterable< std::remove_reference_t< Args >... > = 0>
-    const_reference operator () (const Args&... args) const
-    {
-        int pos = first;
-
-        auto it = c.weights.begin() + dims;
-
-        const auto& dummie = { (pos += std::inner_product(args.begin(), args.end(), it, 0), 
-                                                          it += args.size())... };
         return c[pos];
     }
 
-    template <typename... Args, help::EnableIfIterable< std::decay_t< Args >... > = 0 >
-    reference operator () (const Args&... args)
-    {
-        return const_cast<reference>(static_cast<const Slice&>(*this)(args...));
-    }
 
-
-
-
-
-
-
-
-
-    template <typename U, help::EnableIfIntIter< std::decay_t< U >> = 0>
-    const_reference operator () (const U& begin) const
+    /// For iterators
+    template <typename U, help::EnableIfIterator< std::decay_t< U >> = 0>
+    const_reference operator () (IteratorType, const U& begin) const
     {
         return this->operator[](std::inner_product(c.weights.begin() + dims, c.weights.end(), begin(), first));
     }
 
-    template <typename U, help::EnableIfIntIter< std::decay_t< U > > = 0>
-    reference operator () (const U& begin)
-    {
-        return const_cast<reference>(static_cast<const Slice&>(*this)(begin));
-    }
 
-
-
-
-
-    /** Access for a 'std::initializer_list' of integral type. You can then access a
-      * 'Container' as easily as: 'Container<int, 2, 3, 4> c;  c({1, 2, 3}) = 10'.
-      *
-      * \param[in] il Initializer list defining the position to access
-    */
-    //@{
-    template <typename U, help::EnableIfIntegral< std::decay_t< U > > = 0 >
+    /// For 'std::intializer_lists'
+    template <typename U>
     const_reference operator () (std::initializer_list<U> il) const
     {
-        return this->operator[](std::inner_product(c.weights.begin() + dims, weights.end(), il.begin(), 0));
+        return this->operator[](std::inner_product(c.weights.begin() + dims, c.weights.end(), il.begin(), 0));
     }
 
-    template <typename U, help::EnableIfIntegral< std::decay_t< U > > = 0 >
-    reference operator () (std::initializer_list<U> il)
-    {
-        return const_cast<reference>(static_cast<const Container&>(*this)(il));
-    }
-    //@}
 
 
 
-
-    /** Access for a 'std::tuple' of integral types. It might be useful in some
-      * situations. The order is the same of all the rest, just a little messier.
-      *
-      * \param[in] tup Tuple of integral types to perform access
-    */
+    /** Overloading the access via 'operator[]' */
     //@{
-    template <typename... Args, help::EnableIfIntegral< std::decay_t< Args >... > = 0 >
-    constexpr const_reference operator () (const std::tuple<Args...>& tup) const
+    const_reference operator [] (int p) const
     {
-        return this->operator()(tup, std::make_index_sequence<sizeof...(Args)>());
+        return c[first + p];
     }
 
-    template <typename... Args, help::EnableIfIntegral< std::decay_t< Args >... > = 0 >
-    constexpr reference operator () (const std::tuple<Args...>& tup)
+    reference operator [] (int p)
     {
-        return const_cast<reference>(static_cast<const Container&>(*this)(tup));
-    }
-
-    template <typename... Args, std::size_t... Js>
-    constexpr const_reference operator () (const std::tuple<Args...>& tup, std::index_sequence<Js...>) const
-    {
-        return this->operator()(std::get<Js>(tup)...);
+        return const_cast<reference>(static_cast<const Slice&>(*this)[p]);
     }
     //@}
 
 
 
-
-
-
-    decltype(auto) operator [] (int p) const
-    {
-        return c[first + p];
-    }
-
-    decltype(auto) operator [] (int p)
-    {
-        return c[first + p];
-    }
-
-
-
-
+    /// Size of each dimension
     auto size (int p) const { return c.size(dims + p); }
 
+    /// Total size of the slice
     auto size () const      { return last - first; }
 
 
-
+    /** Begin and end */
+    //@{
     decltype(auto) begin ()        { return c.begin() + first; }
 
     decltype(auto) cbegin () const { return c.cbegin() + first; }
@@ -224,20 +171,21 @@ namespace cnt
     decltype(auto) end ()          { return c.begin() + last; }
 
     decltype(auto) cend () const   { return c.cbegin() + last; }
-
+    //@}
 
 
 private:
 
-    Cnt& c;
+    Cnt& c;             /// Reference to the creator container
 
-    int dims;
-    int first;
-    int last;
+    int dims;           /// Number of dimensions BEFORE the slice
+    int first;          /// First element on the contiguous array
+    int last;           /// Last element on the contiguous array
 
 };
 
 
+} // namespace help
 
 } // namespace cnt
 

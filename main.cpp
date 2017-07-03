@@ -34,22 +34,14 @@ int main ()
     // for(auto x : u)
     // 	DB(x);
 
-    cnt::Container<double> ks(vector<int>{2, 3}, list<long>{4, 5});
+    //cnt::Container<double> ks(7, 3, 6, 2);
+    cnt::Container<double, 7, 3, 6, 2> ks;
 
-    ks(1, 2, vector<int>{3}, 3) = -25.3;
+    auto slc = ks.slice();
 
-    ks({1, 2, 3, 4}) = 50; 
+    slc(5, 2, 4, 1) = 23;
 
-    DB(ks.size());
-    DB(ks.size(0));
-    DB(ks.size(1));
-    DB(ks.size(2));
-    DB(ks.size(3));
-
-    DB(ks[ks.size()-2]);
-    DB(ks[ks.size()-1]);
-    
-
+    cout << ks[213] << "\n";
 
 
 
